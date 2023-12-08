@@ -1,382 +1,247 @@
 package com.lordmau5.ffs.client;
 
-import com.lordmau5.ffs.blockentity.valves.BlockEntityFluidValve;
-import com.lordmau5.ffs.config.ServerConfig;
-import com.lordmau5.ffs.util.ClientRenderHelper;
-import com.lordmau5.ffs.util.GenericUtil;
-import com.lordmau5.ffs.util.TankManager;
-import com.mojang.blaze3d.vertex.PoseStack;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
-import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
-import net.minecraft.client.renderer.texture.TextureAtlasSprite;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.world.inventory.InventoryMenu;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.client.extensions.common.IClientFluidTypeExtensions;
+import com.lordmau5.ffs.FancyFluidStorage;
+import com.lordmau5.ffs.tile.TileEntityValve;
+import com.lordmau5.ffs.util.Position3D;
+import cpw.mods.fml.client.registry.ISimpleBlockRenderingHandler;
+import cpw.mods.fml.client.registry.RenderingRegistry;
+import net.minecraft.block.Block;
+import net.minecraft.client.renderer.RenderBlocks;
+import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.texture.TextureMap;
+import net.minecraft.client.renderer.tileentity.TileEntitySpecialRenderer;
+import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.IIcon;
+import net.minecraft.world.IBlockAccess;
+import net.minecraftforge.client.MinecraftForgeClient;
+import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.fluids.FluidStack;
+import org.lwjgl.opengl.GL11;
 
-import javax.annotation.Nonnull;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.TreeMap;
+public class ValveRenderer extends TileEntitySpecialRenderer implements ISimpleBlockRenderingHandler {
+   public static final int id = RenderingRegistry.getNextAvailableRenderId();
 
-public class ValveRenderer implements BlockEntityRenderer<BlockEntityFluidValve> {
+   private void preGL() {
+      GL11.glPushMatrix();
+      GL11.glPushAttrib(8192);
+      GL11.glEnable(2884);
+      GL11.glDisable(2896);
+      GL11.glEnable(3042);
+      GL11.glBlendFunc(770, 771);
+      GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+      this.bindTexture(TextureMap.locationBlocksTexture);
+   }
 
-    BlockEntityRendererProvider.Context context;
+   private void postGL() {
+      GL11.glPopAttrib();
+      GL11.glPopMatrix();
+   }
 
-    private static class RenderBlock {
-        final BlockPos pos;
-        final int layer;
-        final float height;
-        final boolean isTopLayer;
-        final HashSet<Direction> validFaces;
-
-        private RenderBlock(BlockPos pos, int layer, float height, boolean isTopLayer) {
-            this.pos = pos;
-            this.layer = layer;
-            this.height = height;
-            this.isTopLayer = isTopLayer;
-
-            this.validFaces = new HashSet<>();
-        }
-
-        private void addFace(Direction direction) {
-            this.validFaces.add(direction);
-        }
-
-        @Override
-        public int hashCode() {
-            return pos.hashCode();
-        }
-    }
-
-    private static class ValveCache {
-        final BlockEntityFluidValve valve;
-        final HashSet<RenderBlock> validRenderBlocks;
-
-        int cachedAmount = 0;
-        int updateDelta = 0;
-
-        private ValveCache(BlockEntityFluidValve valve) {
-            this.valve = valve;
-            this.validRenderBlocks = new HashSet<>();
-
-            this.cachedAmount = valve.getTankConfig().getFluidAmount();
-        }
-
-        private void updateCachedAmount() {
-            int amount = valve.getTankConfig().getFluidAmount();
-
-            updateDelta += Math.abs(amount - cachedAmount);
-
-            cachedAmount = amount;
-
-            if (updateDelta >= 1000) {
-                this.validRenderBlocks.clear();
-
-                updateDelta = 0;
-            }
-        }
-
-        @Override
-        public int hashCode() {
-            return valve.hashCode();
-        }
-    }
-
-    private HashMap<BlockEntityFluidValve, ValveCache> cache;
-
-    public ValveRenderer(BlockEntityRendererProvider.Context context) {
-        this.context = context;
-
-        this.cache = new HashMap<>();
-    }
-
-    @Override
-    public int getViewDistance() {
-        return 256;
-    }
-
-    @Override
-    public boolean shouldRenderOffScreen(BlockEntityFluidValve te) {
-        return true;
-    }
-
-    @Override
-    public void render(@Nonnull BlockEntityFluidValve valve, float partialTicks, PoseStack ms, MultiBufferSource bufferIn, int combinedLightIn, int combinedOverlayIn) {
-        if (!valve.isValid()) {
-            cache.remove(valve);
-            return;
-        }
-
-        if (!valve.isMain()) {
-            return;
-        }
-
-        if (valve.getTankConfig().getFluidCapacity() == 0 || valve.getTankConfig().getFluidAmount() == 0) {
-            cache.remove(valve);
-            return;
-        }
-
-        BlockPos valvePos = valve.getBlockPos();
-
-        float fillPercentage = (float) valve.getTankConfig().getFluidAmount() / (float) valve.getTankConfig().getFluidCapacity();
-
-        if (fillPercentage > 0 && !valve.getTankConfig().getFluidStack().isEmpty()) {
-
-            FluidStack fluid = valve.getTankConfig().getFluidStack();
-
-            TreeMap<Integer, HashSet<BlockPos>> airBlocks = TankManager.INSTANCE.getAirBlocksForValve(valve);
-            if (airBlocks == null || airBlocks.isEmpty()) {
-                return;
+   public void renderTileEntityAt(TileEntity tile, double x, double y, double z, float f) {
+      TileEntityValve valve = (TileEntityValve)tile;
+      if (valve != null && valve.isValid()) {
+         Tessellator t = Tessellator.instance;
+         if (valve.isMaster()) {
+            Position3D bottomDiag = valve.bottomDiagFrame;
+            Position3D topDiag = valve.topDiagFrame;
+            if (bottomDiag == null || topDiag == null) {
+               return;
             }
 
-            IClientFluidTypeExtensions extensions = IClientFluidTypeExtensions.of(fluid.getFluid());
+            int height = topDiag.getY() - bottomDiag.getY();
+            int xSize = topDiag.getX() - bottomDiag.getX() + (FancyFluidStorage.instance.TANK_RENDER_INSIDE ? 0 : 1);
+            int zSize = topDiag.getZ() - bottomDiag.getZ() + (FancyFluidStorage.instance.TANK_RENDER_INSIDE ? 0 : 1);
+            if (valve.getCapacity() == 0 || valve.getFluidAmount() == 0) {
+               return;
+            }
 
-            TextureAtlasSprite still = Minecraft.getInstance().getTextureAtlas(InventoryMenu.BLOCK_ATLAS).apply(extensions.getStillTexture(fluid));
-            TextureAtlasSprite flowing = Minecraft.getInstance().getTextureAtlas(InventoryMenu.BLOCK_ATLAS).apply(extensions.getFlowingTexture(fluid));
+            double fillPercentage = (double)valve.getFluidAmount() / (double)valve.getCapacity();
+            if (fillPercentage > 0.0D && valve.getFluid() != null) {
+               FluidStack fluid = valve.getFluid();
+               this.preGL();
+               IIcon flowing = FluidHelper.getFluidTexture(fluid.getFluid(), true);
+               IIcon still = FluidHelper.getFluidTexture(fluid.getFluid(), false);
+               float stillMinU = still.getMinU();
+               float stillMaxU = still.getMaxU();
+               float stillMinV = still.getMinV();
+               float stillMaxV = still.getMaxV();
+               float flowMinU = flowing.getMinU();
+               float flowMaxU = flowMinU + (stillMaxU - stillMinU);
+               float flowMinV_ = flowing.getMinV();
+               float flowMaxV_ = flowMinV_ + (stillMaxV - stillMinV);
+               GL11.glTranslatef((float)x, (float)y, (float)z);
+               GL11.glTranslatef((float)(bottomDiag.getX() - tile.xCoord), (float)bottomDiag.getY() - (float)tile.yCoord + 1.0F, (float)(bottomDiag.getZ() - tile.zCoord));
+               t.startDrawingQuads();
+               float pureRenderHeight = (float)(height - 1) * (float)fillPercentage;
+               boolean isNegativeDensity = fluid.getFluid().getDensity(fluid) < 0;
 
-            ms.pushPose();
+               for(int rY = 0; (double)rY < (isNegativeDensity ? (double)(height - 1) : Math.ceil((double)pureRenderHeight)); ++rY) {
+                  float renderHeight = pureRenderHeight - (float)rY;
+                  renderHeight = Math.min(renderHeight, 1.0F) + (float)rY;
+                  if (rY == 0) {
+                     renderHeight = Math.max(0.01F, renderHeight);
+                  }
 
-            boolean isGaseous = fluid.getFluid().getFluidType().isLighterThanAir();
+                  if (isNegativeDensity) {
+                     renderHeight = 1.0F + (float)rY;
+                  }
 
-            if (isGaseous) {
-                ValveCache cache = ensureRenderBlocksGas(valve, airBlocks);
-                renderGasTank(still, airBlocks, valve.getLevel(), cache, valvePos, ms, bufferIn, fluid, fillPercentage);
+                  float flowMinV = flowMinV_;
+                  if (renderHeight - (float)rY < 1.0F) {
+                     flowMinV = flowMinV_ + (flowMaxV_ - flowMinV_) * (1.0F - (renderHeight - (float)rY));
+                  }
+
+                  for(int rX = FancyFluidStorage.instance.TANK_RENDER_INSIDE ? 1 : 0; rX < xSize; ++rX) {
+                     for(int rZ = FancyFluidStorage.instance.TANK_RENDER_INSIDE ? 1 : 0; rZ < zSize; ++rZ) {
+                        float zMinOffset = 0.0F;
+                        float zMaxOffset = 0.0F;
+                        float xMinOffset = 0.0F;
+                        float xMaxOffset = 0.0F;
+                        if (rZ == (FancyFluidStorage.instance.TANK_RENDER_INSIDE ? 1 : 0)) {
+                           zMinOffset = 0.005F;
+                           t.addVertexWithUV((double)rX, (double)rY, (double)((float)rZ + zMinOffset), (double)flowMaxU, (double)flowMaxV_);
+                           t.addVertexWithUV((double)rX, (double)renderHeight, (double)((float)rZ + zMinOffset), (double)flowMaxU, (double)flowMinV);
+                           t.addVertexWithUV((double)(rX + 1), (double)renderHeight, (double)((float)rZ + zMinOffset), (double)flowMinU, (double)flowMinV);
+                           t.addVertexWithUV((double)(rX + 1), (double)rY, (double)((float)rZ + zMinOffset), (double)flowMinU, (double)flowMaxV_);
+                        }
+
+                        if (rZ == zSize - 1) {
+                           zMaxOffset = 0.005F;
+                           t.addVertexWithUV((double)rX, (double)rY, (double)((float)(rZ + 1) - zMaxOffset), (double)flowMaxU, (double)flowMaxV_);
+                           t.addVertexWithUV((double)(rX + 1), (double)rY, (double)((float)(rZ + 1) - zMaxOffset), (double)flowMinU, (double)flowMaxV_);
+                           t.addVertexWithUV((double)(rX + 1), (double)renderHeight, (double)((float)(rZ + 1) - zMaxOffset), (double)flowMinU, (double)flowMinV);
+                           t.addVertexWithUV((double)rX, (double)renderHeight, (double)((float)(rZ + 1) - zMaxOffset), (double)flowMaxU, (double)flowMinV);
+                        }
+
+                        if (rX == (FancyFluidStorage.instance.TANK_RENDER_INSIDE ? 1 : 0)) {
+                           xMinOffset = 0.005F;
+                           t.addVertexWithUV((double)((float)rX + xMinOffset), (double)rY, (double)rZ, (double)flowMaxU, (double)flowMaxV_);
+                           t.addVertexWithUV((double)((float)rX + xMinOffset), (double)rY, (double)(rZ + 1), (double)flowMinU, (double)flowMaxV_);
+                           t.addVertexWithUV((double)((float)rX + xMinOffset), (double)renderHeight, (double)(rZ + 1), (double)flowMinU, (double)flowMinV);
+                           t.addVertexWithUV((double)((float)rX + xMinOffset), (double)renderHeight, (double)rZ, (double)flowMaxU, (double)flowMinV);
+                        }
+
+                        if (rX == xSize - 1) {
+                           xMaxOffset = 0.005F;
+                           t.addVertexWithUV((double)((float)(rX + 1) - xMaxOffset), (double)rY, (double)rZ, (double)flowMaxU, (double)flowMaxV_);
+                           t.addVertexWithUV((double)((float)(rX + 1) - xMaxOffset), (double)renderHeight, (double)rZ, (double)flowMaxU, (double)flowMinV);
+                           t.addVertexWithUV((double)((float)(rX + 1) - xMaxOffset), (double)renderHeight, (double)(rZ + 1), (double)flowMinU, (double)flowMinV);
+                           t.addVertexWithUV((double)((float)(rX + 1) - xMaxOffset), (double)rY, (double)(rZ + 1), (double)flowMinU, (double)flowMaxV_);
+                        }
+
+                        if (isNegativeDensity) {
+                           if (rY == height - 2) {
+                              t.addVertexWithUV((double)((float)rX + xMinOffset), (double)renderHeight, (double)rZ, (double)stillMinU, (double)stillMinV);
+                              t.addVertexWithUV((double)((float)rX + xMinOffset), (double)renderHeight, (double)(rZ + 1), (double)stillMinU, (double)stillMaxV);
+                              t.addVertexWithUV((double)((float)(rX + 1) - xMaxOffset), (double)renderHeight, (double)(rZ + 1), (double)stillMaxU, (double)stillMaxV);
+                              t.addVertexWithUV((double)((float)(rX + 1) - xMaxOffset), (double)renderHeight, (double)rZ, (double)stillMaxU, (double)stillMinV);
+                           }
+                        } else if ((double)rY == Math.floor((double)pureRenderHeight) || (double)(rY + 1) == Math.ceil((double)pureRenderHeight)) {
+                           t.addVertexWithUV((double)((float)rX + xMinOffset), (double)renderHeight, (double)rZ, (double)stillMinU, (double)stillMinV);
+                           t.addVertexWithUV((double)((float)rX + xMinOffset), (double)renderHeight, (double)(rZ + 1), (double)stillMinU, (double)stillMaxV);
+                           t.addVertexWithUV((double)((float)(rX + 1) - xMaxOffset), (double)renderHeight, (double)(rZ + 1), (double)stillMaxU, (double)stillMaxV);
+                           t.addVertexWithUV((double)((float)(rX + 1) - xMaxOffset), (double)renderHeight, (double)rZ, (double)stillMaxU, (double)stillMinV);
+                        }
+
+                        t.addVertexWithUV((double)(rX + 1), 0.009999999776482582D, (double)((float)rZ + zMinOffset), (double)stillMinU, (double)stillMinV);
+                        t.addVertexWithUV((double)(rX + 1), 0.009999999776482582D, (double)((float)(rZ + 1) - zMaxOffset), (double)stillMinU, (double)stillMaxV);
+                        t.addVertexWithUV((double)rX, 0.009999999776482582D, (double)((float)(rZ + 1) - zMaxOffset), (double)stillMaxU, (double)stillMaxV);
+                        t.addVertexWithUV((double)rX, 0.009999999776482582D, (double)((float)rZ + zMinOffset), (double)stillMaxU, (double)stillMinV);
+                     }
+                  }
+               }
+
+               if (isNegativeDensity) {
+                  GL11.glColor4d(1.0D, 1.0D, 1.0D, 0.125D + fillPercentage - 0.125D * fillPercentage);
+                  GL11.glRotatef(180.0F, 0.0F, 0.0F, 1.0F);
+                  GL11.glTranslatef((float)(bottomDiag.getX() - topDiag.getX() - 1), (float)(-height + 1), 0.0F);
+               }
+
+               t.draw();
+               this.postGL();
+            }
+         }
+
+      }
+   }
+
+   public void renderInventoryBlock(Block block, int metadata, int modelId, RenderBlocks renderer) {
+      Tessellator tessellator = Tessellator.instance;
+      GL11.glTranslatef(-0.5F, -0.5F, -0.5F);
+      tessellator.startDrawingQuads();
+      tessellator.setNormal(0.0F, -1.0F, 0.0F);
+      renderer.renderFaceYNeg(block, 0.0D, 0.0D, 0.0D, renderer.getIconSafe(renderer.getIconSafe(FancyFluidStorage.proxy.tex_ValveItem)));
+      tessellator.draw();
+      tessellator.startDrawingQuads();
+      tessellator.setNormal(0.0F, 1.0F, 0.0F);
+      renderer.renderFaceYPos(block, 0.0D, 0.0D, 0.0D, renderer.getIconSafe(FancyFluidStorage.proxy.tex_ValveItem));
+      tessellator.draw();
+      tessellator.startDrawingQuads();
+      tessellator.setNormal(0.0F, 0.0F, -1.0F);
+      renderer.renderFaceZNeg(block, 0.0D, 0.0D, 0.0D, renderer.getIconSafe(FancyFluidStorage.proxy.tex_ValveItem));
+      tessellator.draw();
+      tessellator.startDrawingQuads();
+      tessellator.setNormal(0.0F, 0.0F, 1.0F);
+      renderer.renderFaceZPos(block, 0.0D, 0.0D, 0.0D, renderer.getIconSafe(FancyFluidStorage.proxy.tex_ValveItem));
+      tessellator.draw();
+      tessellator.startDrawingQuads();
+      tessellator.setNormal(-1.0F, 0.0F, 0.0F);
+      renderer.renderFaceXNeg(block, 0.0D, 0.0D, 0.0D, renderer.getIconSafe(FancyFluidStorage.proxy.tex_ValveItem));
+      tessellator.draw();
+      tessellator.startDrawingQuads();
+      tessellator.setNormal(1.0F, 0.0F, 0.0F);
+      renderer.renderFaceXPos(block, 0.0D, 0.0D, 0.0D, renderer.getIconSafe(FancyFluidStorage.proxy.tex_ValveItem));
+      tessellator.draw();
+      GL11.glTranslatef(0.5F, 0.5F, 0.5F);
+   }
+
+   public boolean renderWorldBlock(IBlockAccess world, int x, int y, int z, Block block, int modelId, RenderBlocks renderer) {
+      Tessellator.instance.addVertexWithUV((double)x, (double)y, (double)z, 0.0D, 0.0D);
+      Tessellator.instance.addVertexWithUV((double)x, (double)y, (double)z, 0.0D, 0.0D);
+      Tessellator.instance.addVertexWithUV((double)x, (double)y, (double)z, 0.0D, 0.0D);
+      Tessellator.instance.addVertexWithUV((double)x, (double)y, (double)z, 0.0D, 0.0D);
+      if (MinecraftForgeClient.getRenderPass() == 1) {
+         return false;
+      } else if (world == null) {
+         return false;
+      } else {
+         TileEntity tile = world.getTileEntity(x, y, z);
+         if (!(tile instanceof TileEntityValve)) {
+            return false;
+         } else {
+            TileEntityValve valve = (TileEntityValve)tile;
+            boolean isMaster = valve.isMaster();
+            if (!valve.isValid()) {
+               renderer.renderStandardBlock(block, x, y, z);
+               renderer.setOverrideBlockTexture(isMaster ? FancyFluidStorage.proxy.tex_MasterValve[0] : FancyFluidStorage.proxy.tex_SlaveValve[0]);
+               renderer.renderStandardBlock(block, x, y, z);
+               renderer.clearOverrideBlockTexture();
+               return false;
             } else {
-                ValveCache cache = ensureRenderBlocksFluid(valve, airBlocks);
-                renderFluidTank(still, flowing, airBlocks, valve.getLevel(), cache, valvePos, ms, bufferIn, fluid);
+               renderer.renderStandardBlock(block, x, y, z);
+               ForgeDirection dr = valve.getInside();
+               if (dr.offsetX != 0) {
+                  renderer.renderFaceXNeg(block, (double)x, (double)y, (double)z, isMaster ? FancyFluidStorage.proxy.tex_MasterValve[1] : FancyFluidStorage.proxy.tex_SlaveValve[1]);
+                  renderer.renderFaceXPos(block, (double)x, (double)y, (double)z, isMaster ? FancyFluidStorage.proxy.tex_MasterValve[1] : FancyFluidStorage.proxy.tex_SlaveValve[1]);
+               } else if (dr.offsetY != 0) {
+                  renderer.renderFaceYNeg(block, (double)x, (double)y, (double)z, isMaster ? FancyFluidStorage.proxy.tex_MasterValve[1] : FancyFluidStorage.proxy.tex_SlaveValve[1]);
+                  renderer.renderFaceYPos(block, (double)x, (double)y, (double)z, isMaster ? FancyFluidStorage.proxy.tex_MasterValve[1] : FancyFluidStorage.proxy.tex_SlaveValve[1]);
+               } else if (dr.offsetZ != 0) {
+                  renderer.renderFaceZNeg(block, (double)x, (double)y, (double)z, isMaster ? FancyFluidStorage.proxy.tex_MasterValve[1] : FancyFluidStorage.proxy.tex_SlaveValve[1]);
+                  renderer.renderFaceZPos(block, (double)x, (double)y, (double)z, isMaster ? FancyFluidStorage.proxy.tex_MasterValve[1] : FancyFluidStorage.proxy.tex_SlaveValve[1]);
+               }
+
+               return true;
             }
+         }
+      }
+   }
 
-            ms.popPose();
-        }
-    }
+   public boolean shouldRender3DInInventory(int modelId) {
+      return true;
+   }
 
-    private ValveCache getCache(BlockEntityFluidValve valve) {
-        if (this.cache.containsKey(valve)) return this.cache.get(valve);
-
-        ValveCache cache = new ValveCache(valve);
-        this.cache.put(valve, cache);
-
-        return cache;
-    }
-
-    private boolean isValidFace(Direction facing, Level level, BlockPos pos, boolean isTopLayer) {
-        if (facing == Direction.UP && isTopLayer) {
-            return true;
-        }
-
-        BlockState state = getBlockState(level, pos);
-        return !state.isSolidRender(level, pos) && !GenericUtil.isAirOrWaterLoggable(level, pos, state);
-    }
-
-    private ValveCache ensureRenderBlocksGas(BlockEntityFluidValve valve, TreeMap<Integer, HashSet<BlockPos>> airBlocks) {
-        ValveCache cache = getCache(valve);
-        Level level = valve.getLevel();
-
-        if (cache.validRenderBlocks.size() > 0) return cache;
-
-        int topLayer = airBlocks.keySet().size() - 1;
-        for (Integer layer : airBlocks.keySet()) {
-            for (BlockPos pos : airBlocks.get(layer)) {
-                var rb = new RenderBlock(pos, layer, 1.0f, layer == topLayer);
-
-                for (Direction facing : Direction.values()) {
-                    BlockPos currentOffset = pos.relative(facing);
-
-                    if (isValidFace(facing, level, currentOffset, rb.isTopLayer))
-                        rb.addFace(facing);
-                }
-
-                if (!rb.validFaces.isEmpty())
-                    cache.validRenderBlocks.add(rb);
-            }
-        }
-
-        return cache;
-    }
-
-    private ValveCache ensureRenderBlocksFluid(BlockEntityFluidValve valve, TreeMap<Integer, HashSet<BlockPos>> airBlocks) {
-        ValveCache cache = getCache(valve);
-        Level level = valve.getLevel();
-
-        cache.updateCachedAmount();
-
-        if (cache.validRenderBlocks.size() > 0) return cache;
-
-        float fluidLeft = valve.getTankConfig().getFluidAmount();
-        for (Integer layer : airBlocks.keySet()) {
-            if (fluidLeft <= 0) {
-                continue;
-            }
-
-            int layerBlockSize = airBlocks.get(layer).size();
-            if (layerBlockSize == 0) {
-                continue;
-            }
-
-            float layerCapacity = ServerConfig.general.mbPerTankBlock * layerBlockSize;
-            float height = Math.min(1, fluidLeft / layerCapacity);
-
-            fluidLeft -= layerCapacity;
-
-            for (BlockPos pos : airBlocks.get(layer)) {
-                var rb = new RenderBlock(pos, layer, height, fluidLeft <= 0);
-
-                for (Direction facing : Direction.values()) {
-                    BlockPos currentOffset = pos.relative(facing);
-
-                    if (isValidFace(facing, level, currentOffset, rb.isTopLayer))
-                        rb.addFace(facing);
-                }
-
-                if (!rb.validFaces.isEmpty())
-                    cache.validRenderBlocks.add(rb);
-            }
-        }
-
-        return cache;
-    }
-
-    private void renderGasTank(TextureAtlasSprite still, TreeMap<Integer, HashSet<BlockPos>> airBlocks, Level level, ValveCache cache, BlockPos valvePos, PoseStack ps, MultiBufferSource vb, FluidStack fluid, float fillPercentage) {
-        IClientFluidTypeExtensions extensions = IClientFluidTypeExtensions.of(fluid.getFluid());
-
-        int color = ClientRenderHelper.changeAlpha(extensions.getTintColor(fluid), (int) (fillPercentage * 255));
-
-        BlockPos playerPos = Minecraft.getInstance().player.blockPosition();
-
-        int topLayer = airBlocks.keySet().size() - 1;
-        for (RenderBlock rb : cache.validRenderBlocks) {
-            if (!playerPos.closerThan(rb.pos, 150)) continue;
-
-            BlockPos offset = rb.pos.subtract(valvePos);
-
-            renderGasBlock(level, still, ps, vb, rb, offset, color, rb.layer == topLayer);
-        }
-    }
-
-    private BlockState getBlockState(Level level, BlockPos pos) {
-        return level.getBlockState(pos);
-    }
-
-    private void renderFluidTank(TextureAtlasSprite still, TextureAtlasSprite flowing, TreeMap<Integer, HashSet<BlockPos>> airBlocks, Level level, ValveCache cache, BlockPos valvePos, PoseStack ps, MultiBufferSource vb, FluidStack fluid) {
-        IClientFluidTypeExtensions extensions = IClientFluidTypeExtensions.of(fluid.getFluid());
-
-        int color = extensions.getTintColor(fluid);
-
-        BlockPos playerPos = Minecraft.getInstance().player.blockPosition();
-
-        int topLayer = airBlocks.keySet().size() - 1;
-        for (RenderBlock rb : cache.validRenderBlocks) {
-            if (!playerPos.closerThan(rb.pos, 150)) continue;
-
-            BlockPos offset = rb.pos.subtract(valvePos);
-
-            renderFluidBlock(level, still, flowing, ps, vb, rb, offset, color, rb.layer == topLayer);
-        }
-    }
-
-    private int getLightColor(Level level, BlockPos pos) {
-        return LevelRenderer.getLightColor(level, getBlockState(level, pos), pos);
-    }
-
-    private int renderGasBlock(Level level, TextureAtlasSprite still, PoseStack ps, MultiBufferSource vb, RenderBlock rb, BlockPos offset, int color, boolean isTop) {
-        BlockPos pos = rb.pos;
-        int brightness = getLightColor(level, pos);
-
-        Vec3 cameraPos = Minecraft.getInstance().getCameraEntity().getEyePosition();
-        Vec3 difference = cameraPos.subtract(pos.getX(), pos.getY(), pos.getZ());
-
-        int renderedFaces = 0;
-
-        for (Direction facing : rb.validFaces) {
-            switch (facing) {
-                case UP -> {
-                    if (difference.y() < 1) continue;
-                }
-                case DOWN -> {
-                    if (difference.y() > 0) continue;
-                }
-                case NORTH -> {
-                    if (difference.z() > 0) continue;
-                }
-                case SOUTH -> {
-                    if (difference.z() < 1) continue;
-                }
-                case WEST -> {
-                    if (difference.x() > 0) continue;
-                }
-                case EAST -> {
-                    if (difference.x() < 1) continue;
-                }
-            }
-
-            renderedFaces++;
-
-            if (facing == Direction.UP && isTop) {
-                ClientRenderHelper.putTexturedQuad(ps, vb, still, offset, rb.height, facing, color, brightness, false);
-                continue;
-            }
-
-            ClientRenderHelper.putTexturedQuad(ps, vb, still, offset, rb.height, facing, color, brightness, false);
-        }
-
-        return renderedFaces;
-    }
-
-    private int renderFluidBlock(Level level, TextureAtlasSprite still, TextureAtlasSprite flowing, PoseStack ps, MultiBufferSource vb, RenderBlock rb, BlockPos offset, int color, boolean isTop) {
-        BlockPos pos = rb.pos;
-        int brightness = getLightColor(level, pos);
-
-        Vec3 cameraPos = Minecraft.getInstance().getCameraEntity().getEyePosition();
-        Vec3 difference = cameraPos.subtract(pos.getX(), (pos.getY() - 1), pos.getZ()).subtract(0.0f, rb.height, 0.0f);
-
-        int renderedFaces = 0;
-
-        for (Direction facing : rb.validFaces) {
-            boolean isFlowing = true;
-
-            switch (facing) {
-                case UP -> {
-                    isFlowing = false;
-
-                    if (difference.y() < 1) continue;
-                }
-                case DOWN -> {
-                    isFlowing = false;
-
-                    if (difference.y() > 0) continue;
-                }
-                case NORTH -> {
-                    if (difference.z() > 0) continue;
-                }
-                case SOUTH -> {
-                    if (difference.z() < 1) continue;
-                }
-                case WEST -> {
-                    if (difference.x() > 0) continue;
-                }
-                case EAST -> {
-                    if (difference.x() < 1) continue;
-                }
-            }
-
-            renderedFaces++;
-
-            if (facing == Direction.UP && isTop) {
-                ClientRenderHelper.putTexturedQuad(ps, vb, still, offset, rb.height, facing, color, brightness, false);
-                continue;
-            }
-
-            ClientRenderHelper.putTexturedQuad(ps, vb, isFlowing ? flowing : still, offset, rb.height, facing, color, brightness, isFlowing);
-        }
-
-        return renderedFaces;
-    }
+   public int getRenderId() {
+      return id;
+   }
 }
